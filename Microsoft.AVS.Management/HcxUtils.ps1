@@ -92,3 +92,20 @@ function Get-HcxMetaData {
 
     throw "Unable To Retrieve HCX Manager Meta Data"
 }
+
+function Get-HcxManagerVM {
+    Write-Host "Identifying HCX VM"
+    $HcxVm = $null
+    $VmsList = Get-VM
+
+    foreach ($Vm in $VmsList) {
+        if($Vm.Name.Contains("HCX-MGR")) {
+            $HcxVm = $Vm
+            break
+        }
+    }
+    if(-not $HcxVm) {
+        throw "HCX VM could not be found. Please check if the HCX addon is installed."
+    }
+    return $HcxVm
+}

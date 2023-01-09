@@ -1067,7 +1067,175 @@ function Set-ClusterDefaultStoragePolicy {
         }
     }
 }
+<#
+    .Synopsis
+    Restarts the HCX Manager VM
 
+    .Parameter Force
+    Flag to force the restart of the hcxmanager without checking for power state, migrations, or replications.
+    For example, A migration could be stuck, causing 
+
+
+    .Parameter HardReboot
+    Warning: This Parameter should be used as a last ditch effort where a soft-reboot wouldn't work.
+    Hard Reboots the VM instead of restarting the Guest OS.
+
+    .Example
+    # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
+    Set-LocationStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -Location "MyVMs"
+#>
+function Restart-HCXManager {
+    Param(
+        [parameter(
+            Mandatory = $false,
+            HelpMessage = "Force restart without checking for migrations")]
+        [switch]
+        $Force,
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Hard Reboots the VM')]
+        [ValidateNotNull()]
+        [switch]
+        $HardReboot,
+        [Parameter(
+            Mandatory = $false,
+            HelpMessage = 'Timeout for connection to HCX Server')]
+        [ValidateNotNull()]
+        [int]
+        $Timeout = 600
+    )
+    try
+    {
+        $DefaultViConnection = $DefaultVIServers
+        $UserName = 'tempHcxAdmin'
+        $UserRole = 'tempHcxAdminRole'
+        $Group = 'CloudAdmins'
+        $Port = 443
+
+        Write-Host "Creating new temp scripting user"
+        $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName $UserName -userRole $UserRole
+        Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
+
+        Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
+        $HcxServer = 'hcx'
+        $hcxVm = Get-HcxManagerVM
+
+        if($hcxVm.PowerState -ne "PoweredOn")
+        {
+            if(-not $Force)
+            {
+                throw "$($hcxVm.Name) must be powered on to restart. Current powerstate is $($hcxVm.PowerState)."
+            }
+            Write-Host "Forcing PowerOn PowerState=$($hcxVm.PowerState), Force=$Force"
+            Start-VM $hcxVm | Out-Null
+            $ForcedPowerOn = $true
+        }
+        if(-not $Force)
+        {
+            Write-Host "Connecting to HCX Server at port $Port..."
+            Add-UserToGroup -userName $UserName -group $Group
+            $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $VcsaCredential -ErrorAction Stop }
+            Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
+            Write-Host "Checking for active migrations."
+
+            $migratingVmsCount = (Get-HCXMigration -State MIGRATING -Server $HcxServer).Count
+
+            if($migratingVmsCount -gt 0)
+            {
+                throw "VM cannot restart while migrations are in progress. There are $migratingVmsCount active migrations."
+            }
+
+            Write-Host "$migratingVmsCount active migrations found."
+
+            $XHmAuthorization = Get-AuthorizationToken -Credential $HcxAdminCredential -HcxServer $HcxServer
+            $keysToLookFor = @("activeReplicationCnt", "configuringReplicationCnt", "recoveringReplicationCnt", "syncingReplicationCnt")
+            $JsonBody = @{"type" = "summary" } | ConvertTo-Json
+
+            Write-Host "Checking for Active Replications"
+
+            $replicationSummary = Invoke-RestMethod -Method 'POST' `
+                -Uri https://${hcxServer}/hybridity/api/replications?action=query `
+                -Authentication Basic -SkipCertificateCheck -Credential $VcsaCredential `
+                -ContentType 'application/json' -Body $JsonBody -Verbose `
+                -Headers @{ 'x-hm-authorization' = "$xHmAuthorization" } `
+            | ConvertTo-Json | ConvertFrom-Json -AsHashtable
+
+            foreach ($key in $keysToLookFor)
+            {
+                if (!$replicationSummary.containsKey($key))
+                {
+                    throw "$key not found in replication summary response."
+                }
+
+                $replicationType = $replicationSummary[$key]
+                if ($replicationType.Count -eq 0)
+                {
+                    $runningReplicationCount = 0
+                }
+                else
+                {
+                    $runningReplicationCount = $replicationType["outgoing"]
+                }
+                if ($replicationType.containsKey("incoming"))
+                {
+                    $runningReplicationCount += $replicationType["incoming"]
+                }
+                if ($runningReplicationCount -gt 0)
+                {
+                    throw "VM cannot restart while replications are in progress. $key=$runningReplicationCount"
+                }
+                Write-Host "$key=$runningReplicationCount"
+            }
+            Write-Host "$runningReplicationCount total running replications found."
+        }
+        else
+        {
+            Write-Host "WARNING: Force option given, VM will restart regardless of migration and replication status."
+        }
+        if (-not $ForcedPowerOn)
+        {
+            if ($HardReboot)
+            {
+                Write-Host "Restarting $($hcxVm.Name)..."
+                Restart-VM -VM $hcxVm -Confirm:$false | Out-Null
+                Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
+            }
+            else
+            {
+                Write-Host "Restarting Guest OS..."
+                Restart-VMGuest -VM $hcxVm | Out-Null
+                Write-Host "$($hcxVm.Name)'s powerstate=$($hcxVm.PowerState)"
+            }
+        }
+        Write-Host "Waiting on connection to HCX appliance..."
+
+        $refreshInterval = 30
+        $count = $Timeout / $refreshInterval
+        do
+        {
+            $count -= 1
+            if ($count -lt 0)
+            {
+                throw "Timed out reconnecting to HCX Server."
+            }
+            Start-Sleep -Seconds $refreshInterval
+            $hcxConnection = Connect-HCXServer -Server $HcxServer -Port $port -Credential $VcsaCredential -ErrorAction:SilentlyContinue
+        }
+        until ($hcxConnection)
+        Write-Host "HCX Appliance on $($hcxVm.name) is now available. Disconnecting from HCX Server."
+    }
+    catch
+    {
+        Write-Error $_
+    }
+    finally
+    {
+        $global:DefaultVIServers = $DefaultViConnection
+        if($hcxConnection) { Disconnect-HCXServer -Server $hcxConnection -Confirm:$false -Force }
+        Remove-TempUser -userName $UserName -userRole $UserRole
+    }
+
+}
 <#
     .Synopsis
     Scale the HCX manager vm to the new resource allocation of 8 vCPU and 24 GB RAM (Default 4 vCPU/12GB)
