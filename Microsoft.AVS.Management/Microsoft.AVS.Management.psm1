@@ -1073,16 +1073,20 @@ function Set-ClusterDefaultStoragePolicy {
 
     .Parameter Force
     Flag to force the restart of the hcxmanager without checking for power state, migrations, or replications.
-    For example, A migration could be stuck, causing 
+    For example, A stuck migration could be preventing the restart without this parameter.
 
 
     .Parameter HardReboot
     Warning: This Parameter should be used as a last ditch effort where a soft-reboot wouldn't work.
     Hard Reboots the VM instead of restarting the Guest OS.
 
+    .Parameter Timeout
+    Number of seconds the script is allowed to wait for sucessful connection to the hcx appliance before timing out.
+
     .Example
-    # Set the vSAN based storage policy on all VMs in MyVMs to RAID-1 FTT-1
-    Set-LocationStoragePolicy -StoragePolicyName "RAID-1 FTT-1" -Location "MyVMs"
+    # Skips Migrations and replications and hard reboots the system.
+    Restart-HcxManager -Force -HardReboot
+
 #>
 function Restart-HCXManager {
     Param(
@@ -1113,13 +1117,17 @@ function Restart-HCXManager {
         $Port = 443
 
         Write-Host "Creating new temp scripting user"
-        $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName $UserName -userRole $UserRole
-        Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
+        $privileges = @("VirtualMachine.Interact.PowerOff",
+                        "VirtualMachine.Interact.PowerOn")
+        $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
 
         Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
+        
         $HcxServer = 'hcx'
         $hcxVm = Get-HcxManagerVM
-
+        
+        Add-UserToGroup -userName $UserName -group $Group
+        
         if($hcxVm.PowerState -ne "PoweredOn")
         {
             if(-not $Force)
@@ -1130,11 +1138,11 @@ function Restart-HCXManager {
             Start-VM $hcxVm | Out-Null
             $ForcedPowerOn = $true
         }
+        
         if(-not $Force)
         {
             Write-Host "Connecting to HCX Server at port $Port..."
-            Add-UserToGroup -userName $UserName -group $Group
-            $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $VcsaCredential -ErrorAction Stop }
+            $elapsed = Measure-Command -Expression { Connect-HCXServer -Server $HcxServer -Port $Port -Credential $HcxAdminCredential -ErrorAction Stop }
             Write-Host "Connected to HCX Server at port $Port elapsed=$elapsed."
             Write-Host "Checking for active migrations."
 
@@ -1155,7 +1163,7 @@ function Restart-HCXManager {
 
             $replicationSummary = Invoke-RestMethod -Method 'POST' `
                 -Uri https://${hcxServer}/hybridity/api/replications?action=query `
-                -Authentication Basic -SkipCertificateCheck -Credential $VcsaCredential `
+                -Authentication Basic -SkipCertificateCheck -Credential $HcxAdminCredential `
                 -ContentType 'application/json' -Body $JsonBody -Verbose `
                 -Headers @{ 'x-hm-authorization' = "$xHmAuthorization" } `
             | ConvertTo-Json | ConvertFrom-Json -AsHashtable
@@ -1219,7 +1227,7 @@ function Restart-HCXManager {
                 throw "Timed out reconnecting to HCX Server."
             }
             Start-Sleep -Seconds $refreshInterval
-            $hcxConnection = Connect-HCXServer -Server $HcxServer -Port $port -Credential $VcsaCredential -ErrorAction:SilentlyContinue
+            $hcxConnection = Connect-HCXServer -Server $HcxServer -Port $port -Credential $HcxAdminCredential -ErrorAction:SilentlyContinue
         }
         until ($hcxConnection)
         Write-Host "HCX Appliance on $($hcxVm.name) is now available. Disconnecting from HCX Server."
@@ -1249,7 +1257,7 @@ function Set-HcxScaledCpuAndMemorySetting {
 
         Write-Host "Creating new temp scripting user"
         $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName $UserName -userRole $UserRole
-        Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
+        Connect-VIServer -Server "vc" -Credential $HcxAdminCredential -Force | Out-Null
 
         $Port = 443
         $HcxServer = 'hcx'

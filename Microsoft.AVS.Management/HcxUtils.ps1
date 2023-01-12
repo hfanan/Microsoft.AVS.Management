@@ -44,7 +44,6 @@ function Get-AuthorizationToken {
     Write-Host "Created Hybridity Session: elapsed=${elapsed}"
     return $SessionHeaders['x-hm-authorization']
 }
-
 <#
     .Synopsis
     Get and return Hcx Metadata Blob
@@ -92,7 +91,13 @@ function Get-HcxMetaData {
 
     throw "Unable To Retrieve HCX Manager Meta Data"
 }
+<#
+    .Synopsis
+    Get and return HCX Virtual machine
 
+    .Example
+    Get-HcxManagerVM
+#>
 function Get-HcxManagerVM {
     Write-Host "Identifying HCX VM"
     $HcxVm = $null
