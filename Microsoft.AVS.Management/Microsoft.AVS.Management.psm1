@@ -1122,12 +1122,12 @@ function Restart-HCXManager {
         $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
 
         Write-Host "INPUTS: HardReboot=$HardReboot, Force=$Force, Port=$Port, Timeout=$Timeout"
-        
+
         $HcxServer = 'hcx'
         $hcxVm = Get-HcxManagerVM
-        
+
         Add-UserToGroup -userName $UserName -group $Group
-        
+
         if($hcxVm.PowerState -ne "PoweredOn")
         {
             if(-not $Force)
@@ -1138,7 +1138,7 @@ function Restart-HCXManager {
             Start-VM $hcxVm | Out-Null
             $ForcedPowerOn = $true
         }
-        
+
         if(-not $Force)
         {
             Write-Host "Connecting to HCX Server at port $Port..."
@@ -1256,8 +1256,12 @@ function Set-HcxScaledCpuAndMemorySetting {
         $Group = 'CloudAdmins'
 
         Write-Host "Creating new temp scripting user"
-        $HcxAdminCredential = New-TempUser -privileges @("VirtualMachine.Config.CPUCount","VirtualMachine.Config.Memory") -userName $UserName -userRole $UserRole
-        Connect-VIServer -Server "vc" -Credential $HcxAdminCredential -Force | Out-Null
+        $privileges = @("VirtualMachine.Config.CPUCount",
+                        "VirtualMachine.Config.Memory",
+                        "VirtualMachine.Interact.PowerOff",
+                        "VirtualMachine.Interact.PowerOn")
+        $HcxAdminCredential = New-TempUser -privileges $privileges -userName $UserName -userRole $UserRole
+        Connect-VIServer -Server $VC_ADDRESS -Credential $HcxAdminCredential | Out-Null
 
         $Port = 443
         $HcxServer = 'hcx'
