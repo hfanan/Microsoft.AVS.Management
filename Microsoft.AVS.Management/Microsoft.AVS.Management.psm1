@@ -2611,5 +2611,52 @@ Function New-AVSStoragePolicy {
     }
 }
 
+Function Set-VSANClusterUNMAPTRIM {
+    <#
+    .DESCRIPTION
+        This function enables vSAN UNMAP/TRIM on the cluster defined by the -Name parameter.  
+        Once enabled, supported Guest OS VM's must be powered off and powered back on.  A reboot will not suffice.
+        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
+    .PARAMETER Name
+        Name of Clusters as defined in vCenter.  Valid values are All, or a comma separated list of cluster names.
+        Example: Cluster-1,Cluster-2,Cluster-3 < Targets these Clusters
+        Example: All < Targets all Clusters
+    .PARAMETER Enable
+        Set to true to enable UNMAP/TRIM on target cluster(s). Default is false.
+        There is a performance impact when UNMAP/TRIM is enabled.  
+        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
+    .EXAMPLE
+        Set-VSANClusterUNMAPTRIM -Name 'Cluster-1,Cluster-2,Cluster-3'
+    .EXAMPLE
+        Set-VSANClusterUNMAPTRIM -Name 'All'
+    #>
 
+    [CmdletBinding()]
+    [AVSAttribute(10, UpdatesSDDC = $false)]
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]
+        $Name,
+        [Parameter(Mandatory = $true)]
+        [bool]
+        $Enable
+    )
+    begin{
+        $Name = Limit-WildcardsandCodeInjectionCharacters -Name $Name
+        $Array = Convert-StringToArray $Name
+    }
+    process {
+            Switch ($Array)
+            {
+                "All" {
+                    Get-Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+                }
+                Default {
+                    Foreach ($Cluster in $Array){
+                        Get-Cluster -name $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+                    }
+                }
+            }
+    }
+}
 
