@@ -2596,14 +2596,14 @@ Function New-AVSStoragePolicy {
         $spbmProfMgr = Get-SpbmView -Id $spbmServiceContent.ProfileManager
         If ($Overwrite) {
             $spbmProfMgr.PbmUpdate($ExistingPolicy.ProfileId, $profilespec)
-            if ($?){return "$($ExistingPolicy.Name) Updated"}
-            else {return "$($ExistingPolicy.Name) Update Failed"}
+            if ($?) { return "$($ExistingPolicy.Name) Updated" }
+            else { return "$($ExistingPolicy.Name) Update Failed" }
             
         }
         Else {
             $profileuniqueID = $spbmProfMgr.PbmCreate($profilespec)
             $existingpolicies = Get-AVSStoragePolicy
-            $createdpolicy = $existingpolicies | where-object {$_.profileid.uniqueid -eq $profileuniqueID.UniqueId}
+            $createdpolicy = $existingpolicies | where-object { $_.profileid.uniqueid -eq $profileuniqueID.UniqueId }
             Write-Information "Created $($createdpolicy.Name)"
             return ("Created " + $createdpolicy.Name + " " + $profileuniqueID.UniqueId)
         }
@@ -2623,7 +2623,7 @@ Function Set-VSANClusterUNMAPTRIM {
         Example: All < Targets all Clusters
     .PARAMETER Enable
         Set to true to enable UNMAP/TRIM on target cluster(s). Default is false.
-        There is a performance impact when UNMAP/TRIM is enabled.  
+        WARNING - There is a performance impact when UNMAP/TRIM is enabled.  
         See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5
     .EXAMPLE
         Set-VSANClusterUNMAPTRIM -Name 'Cluster-1,Cluster-2,Cluster-3'
@@ -2641,22 +2641,31 @@ Function Set-VSANClusterUNMAPTRIM {
         [bool]
         $Enable
     )
-    begin{
+    begin {
         $Name = Limit-WildcardsandCodeInjectionCharacters -Name $Name
         $Array = Convert-StringToArray $Name
     }
     process {
-            Switch ($Array)
-            {
-                "All" {
-                    Get-Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+        Switch ($Array) {
+            "All" {
+                Get-Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+                If ($Enable) {
+                    Write-Information "All Clusters have been enabled for UNMAP/TRIM"
+                    Write-Warning "WARNING - All Clusters - There is a performance impact when UNMAP/TRIM is enabled.  
+                        See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
                 }
-                Default {
-                    Foreach ($Cluster in $Array){
-                        Get-Cluster -name $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+            }
+            Default {
+                Foreach ($Cluster in $Array) {
+                    Get-Cluster -name $Cluster | Set-VsanClusterConfiguration -GuestTrimUnmap:$Enable
+                    If ($Enable) {
+                        Write-Information "$Cluster has been enabled for UNMAP/TRIM"
+                        Write-Warning "WARNING - $Cluster - There is a performance impact when UNMAP/TRIM is enabled.
+                            See url for more information: https://core.vmware.com/resource/vsan-space-efficiency-technologies#sec19560-sub5"
                     }
                 }
             }
+        }
     }
 }
 
