@@ -4,7 +4,7 @@
 
 @{
 
-    # Script module or binary module file associated with this manifest.
+# Script module or binary module file associated with this manifest.
     RootModule = 'Microsoft.AVS.VMFS.psm1'
 
     # Version number of this module.
@@ -48,7 +48,7 @@
 
     # Modules that must be imported into the global environment prior to importing this module
     RequiredModules = @(
-        @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.2.39" }
+    @{ "ModuleName" = "Microsoft.AVS.Management"; "ModuleVersion" = "5.2.39" }
     )
 
     # Assemblies that must be loaded prior to importing this module
@@ -68,11 +68,12 @@
 
     # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
     FunctionsToExport = @(
-        "Set-VmfsIscsi",
-        "New-VmfsDatastore",
-        "Dismount-VmfsDatastore",
-        "Resize-VmfsVolume",
-        "Restore-VmfsVolume"
+    "Set-VmfsIscsi",
+    "New-VmfsDatastore",
+    "Dismount-VmfsDatastore",
+    "Resize-VmfsVolume",
+    "Restore-VmfsVolume",
+    "Set-VmfsDatastoreName"
     )
 
     # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
